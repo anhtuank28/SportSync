@@ -80,7 +80,7 @@ io.on('connection', (socket) => {
 // Global Error Handler Middleware
 app.use(errorHandler);
 
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5001;
 
 if (process.env.NODE_ENV !== 'test') {
   httpServer.listen(PORT, () => {
