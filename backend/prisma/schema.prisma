@@ -1,0 +1,314 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ==========================================
+// ENUMS
+// ==========================================
+
+enum Role {
+  PLAYER
+  OWNER
+  ADMIN
+}
+
+enum SportType {
+  BADMINTON
+  PICKLEBALL
+  FOOTBALL
+  TENNIS
+}
+
+enum SurfaceType {
+  YONEX_PRO_MAT        // Thảm Yonex Pro Mat
+  VIP_AIR_CONDITIONED  // VIP Điều hòa
+  TARAFLEX             // Thảm Taraflex
+  CLUB_STANDARD        // Tiêu chuẩn CLB
+}
+
+enum BookingStatus {
+  HOLDING     // Đang giữ chỗ Redis (10 phút)
+  CONFIRMED   // Đã thanh toán xác nhận
+  CANCELLED   // Đã hủy hoàn tiền
+  EXPIRED     // Hết hạn giữ chỗ không thanh toán
+}
+
+enum PaymentMethod {
+  VIETQR_AUTO       // VietQR tự động
+  CASH_AT_COUNTER   // Tiền mặt tại quầy
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  REFUNDED
+}
+
+enum MatchRoomStatus {
+  OPEN        // Còn chỗ (VD: Còn 2 chỗ 4/6)
+  FULL        // Đã đủ chỗ (Hàng chờ)
+  COMPLETED   // Đã diễn ra xong
+  CANCELLED   // Đã hủy
+}
+
+enum ParticipantStatus {
+  CONFIRMED   // Thành viên chính thức trong phòng
+  WAITLISTED  // Nằm trong danh sách hàng chờ
+  CANCELLED   // Đã rút lui
+}
+
+// ==========================================
+// MODELS
+// ==========================================
+
+model User {
+  id              String      @id @default(uuid())
+  email           String      @unique
+  phone           String      @unique
+  passwordHash    String
+  fullName        String
+  role            Role        @default(PLAYER)
+  avatarUrl       String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  // Quan hệ
+  managedVenues        Venue[]              @relation("VenueOwner")
+  bookings             Booking[]            @relation("UserBookings")
+  createdMatchRooms    MatchRoom[]          @relation("CreatedMatches")
+  matchParticipations  MatchParticipant[]   @relation("UserParticipations")
+
+  @@map("users")
+}
+
+model District {
+  id          String   @id @default(uuid())
+  name        String   // VD: "Quận Cầu Giấy"
+  slug        String   @unique // VD: "quan-cau-giay"
+  city        String   @default("Hà Nội")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  venues      Venue[]
+
+  @@map("districts")
+}
+
+model Venue {
+  id              String    @id @default(uuid())
+  districtId      String
+  ownerId         String?
+  name            String    // VD: "Cụm Sân Cầu Lông Cầu Giấy"
+  slug            String    @unique // VD: "cum-san-cau-long-cau-giay"
+  address         String    // VD: "35 Trần Thái Tông, Dịch Vọng Hậu, Cầu Giấy"
+  latitude        Float     // Dùng tính Haversine bán kính 2.5km
+  longitude       Float     // Dùng tính Haversine bán kính 2.5km
+  openTime        String    @default("06:00") // "06:00"
+  closeTime       String    @default("23:00") // "23:00"
+  isBwfStandard   Boolean   @default(true)    // Tiêu chuẩn BWF
+  rating          Float     @default(4.7)
+  ratingCount     Int       @default(128)
+  amenities       Json      // Lưu JSON 3 tiện ích: Đèn LED 500 Lux, Nóng Lạnh, Đỗ Xe 24/7
+  images          String[]  @default([])
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Quan hệ
+  district        District       @relation(fields: [districtId], references: [id], onDelete: Cascade)
+  owner           User?          @relation("VenueOwner", fields: [ownerId], references: [id])
+  courts          Court[]
+  pricingRules    PricingRule[]
+  vouchers        Voucher[]
+  bookings        Booking[]
+
+  @@index([latitude, longitude])
+  @@index([districtId])
+  @@map("venues")
+}
+
+model Court {
+  id              String       @id @default(uuid())
+  venueId         String
+  name            String       // VD: "Sân 1", "Sân 2", ... "Sân 6"
+  surfaceType     SurfaceType  @default(YONEX_PRO_MAT)
+  surfaceName     String       // VD: "Yonex Pro Mat", "VIP Điều hòa", "Thảm Taraflex"
+  sportType       SportType    @default(BADMINTON)
+  courtNumber     Int          // 1, 2, 3, 4, 5, 6
+  isActive        Boolean      @default(true)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  venue           Venue        @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  bookingSlots    BookingSlot[]
+
+  @@index([venueId])
+  @@map("courts")
+}
+
+model PricingRule {
+  id              String       @id @default(uuid())
+  venueId         String
+  name            String       // "Khung giờ chuẩn", "Giờ vàng cao điểm"
+  startTime       String       // "06:00" hoặc "17:00"
+  endTime         String       // "17:00" hoặc "22:00"
+  isPeakHour      Boolean      @default(false) // true = Giờ vàng 🔥
+  pricePerHour    Int          // 80.000đ, 100.000đ, 120.000đ
+  daysOfWeek      Int[]        @default([0, 1, 2, 3, 4, 5, 6]) // 0: Chủ Nhật -> 6: Thứ Bảy
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  venue           Venue        @relation(fields: [venueId], references: [id], onDelete: Cascade)
+
+  @@index([venueId])
+  @@map("pricing_rules")
+}
+
+model Voucher {
+  id              String    @id @default(uuid())
+  venueId         String?   // null = áp dụng toàn hệ thống
+  code            String    @unique // VD: "BADMINTON20"
+  description     String?
+  discountAmount  Int       // 20.000đ
+  minOrderValue   Int       @default(0)
+  maxDiscount     Int?
+  startDate       DateTime  @default(now())
+  endDate         DateTime
+  usageLimit      Int       @default(1000)
+  usedCount       Int       @default(0)
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  venue           Venue?    @relation(fields: [venueId], references: [id], onDelete: SetNull)
+
+  @@map("vouchers")
+}
+
+model Booking {
+  id                    String         @id @default(uuid())
+  bookingCode           String         @unique // VD: "#BK-8902", "#BK-8901"
+  userId                String?        // null nếu là khách lẻ đặt tại quầy
+  venueId               String
+  customerName          String         // VD: "Nguyễn Tuấn"
+  customerPhone         String         // VD: "0912345456" -> hiển thị che "0912***456"
+  totalStandardAmount   Int            @default(0)
+  totalPeakAmount       Int            @default(0)
+  discountAmount        Int            @default(0)
+  finalAmount           Int            // Tổng thanh toán thực tế (VD: 220.000đ)
+  voucherCode           String?
+  paymentMethod         PaymentMethod  @default(VIETQR_AUTO)
+  paymentStatus         PaymentStatus  @default(PENDING)
+  status                BookingStatus  @default(HOLDING)
+  holdExpiresAt         DateTime?      // Hết hạn giữ chỗ Redis (10 phút = 600s)
+  isMatchmakingEnabled  Boolean        @default(false) // Toggle: "Mở phòng tuyển giao lưu"
+  notes                 String?
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+
+  user                  User?          @relation("UserBookings", fields: [userId], references: [id], onDelete: SetNull)
+  venue                 Venue          @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  slots                 BookingSlot[]
+  matchRoom             MatchRoom?
+  transactions          Transaction[]
+
+  @@index([venueId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("bookings")
+}
+
+model BookingSlot {
+  id              String         @id @default(uuid())
+  bookingId       String
+  courtId         String
+  date            String         // Định dạng ISO Date "YYYY-MM-DD" (VD: "2025-10-24")
+  timeSlot        String         // Định dạng khung giờ "18:00 - 19:00", "19:00 - 20:00"
+  price           Int            // Giá của slot đó (VD: 120.000đ)
+  isPeakHour      Boolean        @default(false) // Giờ vàng cao điểm 🔥
+  status          BookingStatus  @default(HOLDING)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  booking         Booking        @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  court           Court          @relation(fields: [courtId], references: [id], onDelete: Cascade)
+
+  // =========================================================================
+  // RÀNG BUỘC TOÀN VẸN QUAN TRỌNG NHẤT:
+  // COMPOSITE UNIQUE INDEX CHỐNG TRÙNG LỊCH VẬT LÝ TUYỆT ĐỐI (DOUBLE-BOOKING = 0%)
+  // =========================================================================
+  @@unique([courtId, date, timeSlot], name: "unique_court_date_timeslot")
+  @@index([courtId, date])
+  @@index([status])
+  @@map("booking_slots")
+}
+
+model MatchRoom {
+  id              String           @id @default(uuid())
+  bookingId       String?          @unique // Liên kết 1-1 với đơn đặt sân đã thanh toán
+  creatorId       String?          // Người tạo kèo
+  title           String           // VD: "Sân Cầu Lông Dịch Vọng", "D-Pickleball Sky Club"
+  sportType       SportType        @default(BADMINTON)
+  sportTag        String           // VD: "🏸 Cầu lông • TB-Khá", "🏓 Pickleball • Mới chơi"
+  skillLevel      String           // "TB-Khá", "Mới chơi", "Bán chuyên", "Trung bình (B / C+)"
+  pricePerPerson  Int              // VD: 65.000đ, 80.000đ, 70.000đ
+  maxPlayers      Int              @default(4) // 4, 6, 14
+  currentPlayers  Int              @default(1)
+  status          MatchRoomStatus  @default(OPEN)
+  playDate        String           // "2025-10-24"
+  timeSlot        String           // "19:00 - 21:00"
+  venueName       String           // "Sân Cầu Lông Dịch Vọng"
+  address         String           // "Quận Cầu Giấy"
+  description     String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  booking         Booking?         @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  creator         User?            @relation("CreatedMatches", fields: [creatorId], references: [id], onDelete: SetNull)
+  participants    MatchParticipant[]
+
+  @@index([sportType])
+  @@index([status])
+  @@index([playDate])
+  @@map("match_rooms")
+}
+
+model MatchParticipant {
+  id              String             @id @default(uuid())
+  matchRoomId     String
+  userId          String?
+  playerName      String             // VD: "Nguyễn Tuấn", "Võ Gia Huy"
+  playerPhone     String?
+  status          ParticipantStatus  @default(CONFIRMED)
+  joinedAt        DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  matchRoom       MatchRoom          @relation(fields: [matchRoomId], references: [id], onDelete: Cascade)
+  user            User?              @relation("UserParticipations", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([matchRoomId, userId], name: "unique_match_user")
+  @@index([matchRoomId])
+  @@map("match_participants")
+}
+
+model Transaction {
+  id              String         @id @default(uuid())
+  bookingId       String
+  paymentMethod   PaymentMethod  @default(VIETQR_AUTO)
+  amount          Int
+  referenceCode   String?        // Mã giao dịch ngân hàng / VietQR reference
+  status          PaymentStatus  @default(SUCCESS)
+  payload         Json?          // Lưu raw webhook data từ PayOS / VietQR
+  createdAt       DateTime       @default(now())
+
+  booking         Booking        @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId])
+  @@map("transactions")
+}

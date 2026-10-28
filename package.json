@@ -1,0 +1,31 @@
+{
+  "name": "sportsync-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "SportSync (CourtSync OS) - Multi-Venue Sports Booking, Matchmaking & Venue Operations Platform",
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "dev:backend": "npm --workspace=backend run dev",
+    "dev:frontend": "npm --workspace=frontend run dev",
+    "build:backend": "npm --workspace=backend run build",
+    "build:frontend": "npm --workspace=frontend run build",
+    "db:migrate": "npm --workspace=backend run db:migrate",
+    "db:seed": "npm --workspace=backend run db:seed",
+    "db:studio": "npm --workspace=backend run db:studio",
+    "test": "npm --workspace=backend run test"
+  },
+  "keywords": [
+    "sportsync",
+    "courtsync",
+    "badminton",
+    "booking",
+    "matchmaking",
+    "redis-lock",
+    "socketio"
+  ],
+  "author": "SportSync Team",
+  "license": "MIT"
+}
