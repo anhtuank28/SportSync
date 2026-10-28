@@ -1,10 +1,17 @@
-import express, { Request, Response, NextFunction } from 'express';
+import express, { Request, Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
 import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
+import venueRoutes from './modules/venue/venue.routes';
+import bookingRoutes from './modules/booking/booking.routes';
+import matchmakingRoutes from './modules/matchmaking/matchmaking.routes';
+import ownerRoutes from './modules/owner/owner.routes';
+import swaggerUi from 'swagger-ui-express';
+import { swaggerDocument } from './config/swagger';
+import { errorHandler } from './middlewares/errorHandler';
 
 dotenv.config();
 
@@ -22,15 +29,17 @@ export const io = new SocketIOServer(httpServer, {
 
 // Middlewares
 app.use(helmet());
-app.use(cors({
-  origin: process.env.CORS_ORIGIN?.split(',') || ['http://localhost:3000', 'http://localhost:5173'],
-  credentials: true,
-}));
+app.use(
+  cors({
+    origin: process.env.CORS_ORIGIN?.split(',') || ['http://localhost:3000', 'http://localhost:5173'],
+    credentials: true,
+  })
+);
 app.use(morgan('dev'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Chuẩn hóa RESTful Health Check
+// Health Check
 app.get('/api/v1/health', (_req: Request, res: Response) => {
   res.status(200).json({
     success: true,
@@ -44,6 +53,15 @@ app.get('/api/v1/health', (_req: Request, res: Response) => {
     meta: null,
   });
 });
+
+// -------------------------------------------------------------
+// API MODULE ROUTES (Tuần 1, Tuần 2 & Tuần 3)
+// -------------------------------------------------------------
+app.use('/api/v1/venues', venueRoutes);
+app.use('/api/v1/bookings', bookingRoutes);
+app.use('/api/v1/matchmaking', matchmakingRoutes);
+app.use('/api/v1/owner', ownerRoutes);
+app.use('/api/v1/docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 
 // Socket.io Connection Handler
 io.on('connection', (socket) => {
@@ -60,25 +78,21 @@ io.on('connection', (socket) => {
 });
 
 // Global Error Handler Middleware
-app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
-  console.error('💥 Unhandled Exception:', err);
-  res.status(500).json({
-    success: false,
-    statusCode: 500,
-    message: err.message || 'Lỗi máy chủ nội bộ (Internal Server Error)',
-    data: null,
-    meta: {
-      timestamp: new Date().toISOString(),
-    },
-  });
-});
+app.use(errorHandler);
 
 const PORT = process.env.PORT || 5000;
 
-httpServer.listen(PORT, () => {
-  console.log(`🚀 SportSync Backend Server listening on http://localhost:${PORT}`);
-  console.log(`📡 WebSocket Gateway ready on ws://localhost:${PORT}`);
-  console.log(`🩺 Health check available at: http://localhost:${PORT}/api/v1/health`);
-});
+if (process.env.NODE_ENV !== 'test') {
+  httpServer.listen(PORT, () => {
+    console.log(`🚀 SportSync Backend Server listening on http://localhost:${PORT}`);
+    console.log(`📡 WebSocket Gateway ready on ws://localhost:${PORT}`);
+    console.log(`🩺 Health check available at: http://localhost:${PORT}/api/v1/health`);
+    console.log(`🏟️ Venues API endpoint at: http://localhost:${PORT}/api/v1/venues`);
+    console.log(`⚡ Bookings & VietQR API at: http://localhost:${PORT}/api/v1/bookings`);
+    console.log(`🤝 Matchmaking API at: http://localhost:${PORT}/api/v1/matchmaking`);
+    console.log(`🏢 CourtSync OS Owner API at: http://localhost:${PORT}/api/v1/owner`);
+    console.log(`📚 Swagger OpenAPI Docs at: http://localhost:${PORT}/api/v1/docs`);
+  });
+}
 
 export default app;
